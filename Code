@@ -1,0 +1,545 @@
+// для обнаружения утечек памяти
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#ifdef _DEBUG
+#ifndef DBG_NEW
+#define DBG_NEW new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
+#define newDBG_NEW
+#endif
+#endif
+
+#include <iostream>
+#include <Windows.h>
+#include <fstream>
+#include <sstream>
+#include <iomanip> // для функции setw(n)
+using namespace std;
+typedef unsigned short int uint_16;
+enum Shops { Aliexpress, Amazon, Citilink, DNS, Ebay, Eldorado, Mvideo, Ozon, Svyaznoy, Wildberries } Shop;
+
+struct PRICE
+{
+    string Name;
+    Shops Shop;
+    double Price;
+};
+
+struct List
+{
+    PRICE product;
+    List* next;
+};
+
+// ф-ция обнаружения ошибок при открытии файла
+void CheckFile(fstream& file)
+{
+    if (!file.is_open())
+    {
+        cout << "Ошибка при открытии файла.";
+        exit(0);
+    }
+}
+
+// ф-ция обнаружения утечек памяти
+void CheckLeak()
+{
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDOUT);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDOUT);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDOUT);
+    _CrtDumpMemoryLeaks();
+}
+
+// проверка ввода пользователем пункта меню
+int CheckMenu()
+{
+    int menu;
+    while (1) {
+        cin >> menu;
+        if (cin.fail()) // проверка ошибку при вводе
+        {
+            cin.clear(); // возвращаем cin в "обычный" режим работы
+            cin.ignore((numeric_limits<streamsize>::max)(), '\n'); // удаление значения предыдущего ввода из входного буфера
+            cout << "Некорректный тип данных. Повторите ввод >> ";
+        }
+        else if (cin.get() != '\n') // проверка на наличие буквы или символа
+        {
+            cin.ignore((numeric_limits<streamsize>::max)(), '\n'); // удаление значения предыдущего ввода из входного буфера
+            cout << "Некорректный тип данных. Повторите ввод >> ";
+        }
+        else
+            if (menu < 1 || menu > 5) // проверка на принадлежность числа заданному диапазону
+                cout << "Значение не входят в заданный диаппазон. Повторите ввод >> ";
+            else return menu;
+    }
+}
+
+// проверка названия товара
+string CheckName()
+{
+    cout << endl << "Введите название товара >> ";
+    string Name;
+    cin.ignore(cin.rdbuf()->in_avail());
+    while (1)
+    {
+        getline(cin, Name);
+        bool flag = true;
+        for (int i = 0; i < Name.length(); i++)
+        {
+            if ((Name[i] > 32 && Name[i] < 48) || (Name[i] > 57 && Name[i] < 65) || (Name[i] > 90 && Name[i] < 97)\
+                || Name[i] > 122) // допустимые символы: только рус и лат алфавиты, цифры
+            {
+                cout << "Ошибка. Введите заново >> ";
+                flag = false;
+                break;
+            }
+        }
+        if (flag) return Name;
+    }
+}
+
+// проверка цены товара
+double CheckPrice()
+{
+    cout << "Укажите цену товара в $ >> ";
+    double Price;
+    int menu;
+    while (1)
+    {
+        cin >> Price;
+        if (cin.fail()) // проверка на ошибку при вводе
+        {
+            cin.clear(); // возвращаем cin в "обычный" режим работы
+            cin.ignore((numeric_limits<streamsize>::max)(), '\n'); // удаление значения предыдущего ввода из входного буфера
+            cout << "Некорректный тип данных. Повторите ввод >> ";
+        }
+        else if (cin.get() != '\n') // проверка на наличие буквы или символа
+        {
+            cin.ignore((numeric_limits<streamsize>::max)(), '\n'); // удаление значения предыдущего ввода из входного буфера
+            cout << "Некорректный тип данных. Повторите ввод >> ";
+        }
+        else return Price;
+    }
+}
+
+// проверка магазина
+Shops CheckShop()
+{
+    cout << "Выберите магазин, в котором продается товар, из следующего списка магазинов:\n\
+Amazon, Ebay, Aliexpress, Wildberries, DNS, Citilink, Mvideo, Eldorado, Ozon, Svyaznoy." << endl << "Ваш выбор >> ";
+    string Shop;
+    while (1)
+    {
+        cin >> Shop;
+        if (Shop == "Amazon") return Amazon;
+        if (Shop == "Ebay") return Ebay;
+        if (Shop == "Aliexpress") return Aliexpress;
+        if (Shop == "Wildberries") return Wildberries;
+        if (Shop == "DNS") return DNS;
+        if (Shop == "Citilink") return Citilink;
+        if (Shop == "Mvideo") return Mvideo;
+        if (Shop == "Eldorado") return Eldorado;
+        if (Shop == "Ozon") return Ozon;
+        if (Shop == "Svyaznoy") return Svyaznoy;
+        cout << "Такого магазина нет. Введите заново >> ";
+    }
+}
+
+// проверка на существование такой записи о товаре в каталоге
+List* CheckProduct(List* root, string Name, Shops Shop)
+{
+    List* temp = root;
+    while (temp != NULL)
+    {
+        if (temp->product.Name == Name)
+            if (temp->product.Shop == Shop)
+                return temp;
+        temp = temp->next;
+    }
+    return NULL;
+}
+
+// чтение каталога из файла
+void ReadCatalog(List*& root)
+{
+    fstream file("database.txt");
+    CheckFile(file);
+    string line;
+    List* ptr = root; // для нахождения последнего узла списка
+    while (getline(file, line))
+    {
+        istringstream iss(line);
+        string token;
+        int i = 0;
+        List* node;
+        node = new List;
+        while (getline(iss, token, ';'))
+        {
+            if (i == 1) node->product.Name = token;
+            if (i == 2)
+            {
+                if (token == "Amazon") node->product.Shop = Amazon;
+                if (token == "Ebay") node->product.Shop = Ebay;
+                if (token == "Aliexpress") node->product.Shop = Aliexpress;
+                if (token == "Wildberries") node->product.Shop = Wildberries;
+                if (token == "DNS") node->product.Shop = DNS;
+                if (token == "Citilink") node->product.Shop = Citilink;
+                if (token == "Mvideo") node->product.Shop = Mvideo;
+                if (token == "Eldorado") node->product.Shop = Eldorado;
+                if (token == "Ozon") node->product.Shop = Ozon;
+                if (token == "Svyaznoy") node->product.Shop = Svyaznoy;
+            }
+            if (i == 3)
+            {
+                double Price;
+                stringstream ss(token);
+                ss >> Price;
+                node->product.Price = Price;
+            }
+            i++;
+        }
+        if (!ptr) // добаляем в начало, если список пуст
+        {
+            node->next = root;
+            root = node;
+            ptr = root;
+        }
+        else // добавляем в конец, чтобы вывод из БД соответствовал действительности
+        {
+            while (ptr->next) ptr = ptr->next; // пока не найден ключ, предшествующий 1му
+            ptr->next = node;
+            node->next = NULL;
+        }
+    }
+    cout << endl << "Данные успешно загружены из БД." << endl;
+    file.close();
+}
+
+// добавление в начало списка
+List* AddProduct(List*& root)
+{
+    string Name = CheckName();
+    Shops Shop = CheckShop();
+    if (!CheckProduct(root, Name, Shop))
+    {
+        List* node = new List;
+        node->next = root;
+        root = node; // добавленный узел стал корнем списка
+        root->product.Name = Name;
+        root->product.Shop = Shop;
+        root->product.Price = CheckPrice();
+        cout << "Товар успешно добавлен :)" << endl;
+        return(root);
+    }
+    else cout << "Такая запись уже есть, товар не может быть добавлен :(" << endl;
+}
+
+// сортировка по алфавиту названий товара -> затем магазинов
+void Sort(List*& root)
+{
+    if (!root->next) return; // когда список из одного узла
+    List* ptr = root, * temp = NULL, * prev = NULL; // ptr - стравниваемый товар, prev - перед сравниваемым стоит
+    bool flag = false;
+    do
+    {
+        flag = false;
+        while (ptr->next)
+        {
+            if (ptr->product.Name == ptr->next->product.Name) // когда имена одинаковые - сортируем магазины
+            {
+                List* ptr2, * temp2 = NULL, * prev2 = root;
+                do
+                {
+                    flag = false;
+                    ptr2 = ptr;
+                    while (ptr2->product.Name == ptr2->next->product.Name) // пока одинаковые имена не кончатся
+                    {
+                        if (ptr2->product.Shop > ptr2->next->product.Shop)
+                        { // если непорядок -> меняем местами
+                            if (ptr2 == root)
+                            {
+                                temp2 = ptr2;
+                                ptr2 = temp2->next;
+                                temp2->next = ptr2->next;
+                                ptr2->next = temp2;
+                                root = ptr2;
+                                flag = true;
+                            }
+                            else
+                            {
+                                while (prev2->next != ptr || prev2 == ptr) prev2 = prev2->next;
+                                temp2 = ptr2;
+                                ptr2 = temp2->next;
+                                temp2->next = ptr2->next;
+                                ptr2->next = temp2;
+                                prev2->next = ptr2;
+                                flag = true;
+                            }
+                        }
+                        prev2 = ptr2;  // возврат к первому товару с таким названием
+                        ptr2 = ptr2->next;
+                        if (!ptr2->next) // 1ая проверка на конец списка
+                        {
+                            flag = false; // чтобы завершить цикл
+                            break;
+                        }
+                    }
+                } while (flag);
+                ptr = ptr->next;
+                if (!ptr) // 2ая проверка на конец списка
+                {
+                    flag = false; // чтобы завершить цикл
+                    break;
+                }
+            }
+            else
+            {    // пока не дойдем до конца какого-то товара или первое несовпадение символов
+                for (int i = 0; i < ptr->product.Name.length() || i < ptr->next->product.Name.length(); i++)
+                {
+                    if (tolower(ptr->product.Name[i]) == tolower(ptr->next->product.Name[i])) continue;
+                    if (tolower(ptr->product.Name[i]) > tolower(ptr->next->product.Name[i]))
+                    { // если непорядок -> меняем местами
+                        if (ptr == root)
+                        {
+                            temp = ptr;
+                            ptr = temp->next;
+                            temp->next = ptr->next;
+                            ptr->next = temp;
+                            root = ptr;
+                            flag = true;
+                        }
+                        else
+                        {
+                            temp = ptr;
+                            ptr = temp->next;
+                            temp->next = ptr->next;
+                            ptr->next = temp;
+                            prev->next = ptr;
+                            flag = true;
+                        }
+                        ptr = root; // возврат в начало списка
+                    }
+                    prev = ptr;
+                    ptr = ptr->next; // сравниваем слудующий объект
+                    break;
+                }
+            }
+        }
+    } while (flag);
+}
+
+// удаление записи о товаре из каталога
+void DeleteProduct(List*& root)
+{
+    string Name = CheckName();
+    Shops Shop = CheckShop();
+    List* ptr = CheckProduct(root, Name, Shop);
+    if (ptr)
+    {
+        if (ptr == root)
+        {
+            root = root->next;
+            delete(ptr);
+            cout << "Товар успешно удален :)" << endl;
+        }
+        else {
+            List* temp = root;
+            while (temp->next != ptr) temp = temp->next; // пока не найден ключ, предшествующий 1му
+            temp->next = ptr->next; // переставляем указатель
+            delete(ptr);
+            cout << "Товар успешно удален :)" << endl;
+        }
+    }
+    else cout << "Товар не найден :0" << endl;
+}
+
+// вывод каталога из файла
+void PrintCatalog(fstream& file)
+{
+    cout << "Каталог товаров:" << endl;
+    cout << "Номер\t| Название\t\t\t| Магазин\t| Цена" << endl;
+    string line;
+    while (getline(file, line))
+    {
+        string Name, Shop;
+        int ID, Price;
+        istringstream iss(line);
+        string token;
+        int i = 0;
+        while (getline(iss, token, ';'))
+        {
+            if (i == 0) ID = atoi(token.c_str()); // перевод string в int
+            if (i == 1) Name = token;
+            if (i == 2) Shop = token;
+            if (i == 3) Price = atof(token.c_str()); // перевод string в double (плохой способ...)
+            i++;
+        }
+        // вывод данных
+        cout << ID << "\t|" << Name << "\t|" << Shop << "\t|" << Price << endl;
+    }
+}
+
+// вывод каталога
+void PrintCatalog(List* root)
+{
+    cout << endl << "Номер\t| Название\t\t\t| Магазин\t| Цена" << endl;
+    cout << "--------|-------------------------------|---------------|----------" << endl;
+    struct List* ptr = root;
+    uint_16 ID = 0;
+    do
+    {
+        ID++;
+        cout << ID << "\t| " << setw(20) << left << ptr->product.Name << "\t\t| ";
+        switch (ptr->product.Shop)
+        {
+        case 0: { cout << "Aliexpress"; break; }
+        case 1: { cout << "Amazon"; break; }
+        case 2: { cout << "Citilink"; break; }
+        case 3: { cout << "DNS        "; break; }
+        case 4: { cout << "Ebay       "; break; }
+        case 5: { cout << "Eldorado"; break; }
+        case 6: { cout << "Mvideo"; break; }
+        case 7: { cout << "Ozon       "; break; }
+        case 8: { cout << "Svyaznoy"; break; }
+        case 9: { cout << "Wildberries"; break; }
+        }
+        cout << left << setw(5) << "\t| " << ptr->product.Price << endl;
+        ptr = ptr->next; // переход к следующему узлу
+    } while (ptr);
+}
+
+// поиск информации о товарах по названию
+void SearchProduct(List* root)
+{
+    string Name = CheckName();
+    List* temp = root;
+    List* ptr = NULL;
+    while (temp)
+    {
+        if (temp->product.Name == Name)
+        {
+            List* node = new List;
+            node->product = temp->product;
+            node->next = ptr;
+            ptr = node; // добавленный узел стал корнем спискa
+        }
+        temp = temp->next;
+    }
+    if (ptr)
+    {
+        cout << "Список товаров с таким названием:" << endl;
+        Sort(root);
+        PrintCatalog(ptr);
+    }
+    else cout << "Товары с таким названием не найдены." << endl;
+}
+
+// сохранение каталога в файл
+void SaveCatalog(List* root)
+{
+    fstream file;
+    file.open("database.txt", std::ios::out | std::ios::trunc);
+    CheckFile(file);
+    List* temp = root;
+    uint_16 ID = 0;
+    while (temp != NULL)
+    {
+        ID++;
+        file << ID << ";" << temp->product.Name << ";";
+        switch (temp->product.Shop)
+        {
+        case 0: { file << "Aliexpress"; break; }
+        case 1: { file << "Amazon"; break; }
+        case 2: { file << "Citilink"; break; }
+        case 3: { file << "DNS"; break; }
+        case 4: { file << "Ebay"; break; }
+        case 5: { file << "Eldorado"; break; }
+        case 6: { file << "Mvideo"; break; }
+        case 7: { file << "Ozon"; break; }
+        case 8: { file << "Svyaznoy"; break; }
+        case 9: { file << "Wildberries"; break; }
+        }
+        file << ";" << temp->product.Price << ";\n";
+        temp = temp->next;
+    }
+    cout << endl << "Все изменения в БД сохранены." << endl;
+    file.close();
+}
+
+// удаление списка, чтобы не было утечек памяти
+void DeleteCatalog(List*& root)
+{
+    List* temp = root, * next = NULL;
+    while (temp != NULL)
+    {
+        next = temp->next;
+        delete temp;
+        temp = next;
+    }
+    delete(next);
+    root = NULL;
+}
+
+int main()
+{
+    SetConsoleCP(1251);
+    SetConsoleOutputCP(1251);
+    system("color 0D");
+    List* root = NULL; // корень списка
+    ReadCatalog(root);
+    PrintCatalog(root);
+    int menu;
+    while (1)
+    {
+        system("Pause");
+        system("cls");
+        cout << endl << ">> Выберите дальнейшее действие из меню:" << endl;
+        cout << "   1 - добавить товар;" << endl;
+        cout << "   2 - удалить товар;" << endl;
+        cout << "   3 - вывести каталог товаров;" << endl;
+        cout << "   4 - поиск товара по названию;" << endl;
+        cout << "   5 - выход из программы." << endl;
+        cout << ">> ";
+        menu = CheckMenu();
+        switch (menu)
+        {
+        case 1: // добаление
+        {
+            system("cls");
+            AddProduct(root);
+            Sort(root);
+            break;
+        }
+        case 2: // удаление
+        {
+            system("cls");
+            DeleteProduct(root);
+            break;
+        }
+        case 3: // вывод каталога товаров
+        {
+            system("cls");
+            PrintCatalog(root);
+            break;
+        }
+        case 4: // поиск
+        {
+            system("cls");
+            SearchProduct(root);
+            break;
+        }
+        case 5:
+        {
+            system("cls");
+            SaveCatalog(root);
+            DeleteCatalog(root);
+            delete(root);
+            CheckLeak();
+            return 0;
+        }
+        }
+    }
+}
